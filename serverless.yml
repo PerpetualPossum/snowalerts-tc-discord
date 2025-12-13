@@ -11,6 +11,20 @@ stages:
       subscribedChannelsTableName: "subscribed-channels-${sls:stage}"
       handledSmsMessagesTableName: "handled-sms-messages-${sls:stage}"
       proccessedNotificationsTableName: "proccessed-notifications-${sls:stage}"
+    resolvers:
+      doppler:
+        type: doppler
+        token: ${env:DOPPLER_TOKEN}
+        project: snowalerts-tc-discord
+        config: dev
+
+  prod:
+    resolvers:
+      doppler:
+        type: doppler
+        token: ${env:DOPPLER_TOKEN}
+        project: snowalerts-tc-discord
+        config: prod
 
 plugins:
   - serverless-python-requirements
