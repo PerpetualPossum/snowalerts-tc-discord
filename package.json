@@ -1,0 +1,11 @@
+{
+  "name": "snowalerts-tc-discord",
+  "version": "1.0.0",
+  "description": "",
+  "author": "",
+  "devDependencies": {
+    "serverless-lift": "^1.32.1",
+    "serverless-python-requirements": "^6.1.0",
+    "serverless-wsgi": "^3.0.4"
+  }
+}

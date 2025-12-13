@@ -1,0 +1,120 @@
+# "org" ensures this Service is used with the correct Serverless Framework Access Key.
+org: perpetualpossum
+# "app" enables Serverless Framework Dashboard features and sharing them with other Services.
+app: snowalerts-tc-discord
+# "service" is the name of this project. This will also be added to your AWS resource names.
+service: snowalerts-tc-discord
+
+stages:
+  default:
+    params:
+      subscribedChannelsTableName: "subscribed-channels-${sls:stage}"
+      handledSmsMessagesTableName: "handled-sms-messages-${sls:stage}"
+      proccessedNotificationsTableName: "proccessed-notifications-${sls:stage}"
+
+plugins:
+  - serverless-python-requirements
+  - serverless-lift
+custom:
+  pythonRequirements:
+    dockerizePip: true
+    useUv: true
+    installer: uv
+  wsgi:
+    app: app.app
+
+provider:
+  name: aws
+  runtime: python3.13
+  # Uncomment to easily set up a custom domain. Read the docs for more details:
+  # https://www.serverless.com/framework/docs/providers/aws/guide/domains
+  # domain: api.example.com
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+          Resource:
+            - Fn::GetAtt: [ProccessedNotificationsTable, Arn]
+  environment:
+    PROCCESSED_NOTIFICATIONS_TABLE: ${param:proccessedNotificationsTableName}
+
+functions:
+  api:
+    handler: app.lambda_handler
+    events:
+      - http:
+          path: /api/interactions
+          method: POST
+      - http:
+          path: /webhooks/incoming-sms
+          method: POST
+  incomingMessage:
+    handler: app.lambda_handler
+    # Event source in constructs section
+
+  outgoingNotification:
+    handler: app.lambda_handler
+    # Event source in constructs section
+
+resources:
+  Resources:
+    SubscribedChannelsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: channelId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: channelId
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 5
+          WriteCapacityUnits: 5
+        TableName: ${param:subscribedChannelsTableName}
+
+    HandledSmsMessagesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: messageId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: messageId
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 5
+          WriteCapacityUnits: 5
+        TableName: ${param:handledSmsMessagesTableName}
+
+    ProccessedNotificationsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: channelId
+            AttributeType: S
+          - AttributeName: sentAt
+            AttributeType: N
+        KeySchema:
+          - AttributeName: channelId
+            KeyType: HASH
+          - AttributeName: sentAt
+            KeyType: RANGE
+        ProvisionedThroughput:
+          ReadCapacityUnits: 5
+          WriteCapacityUnits: 5
+        TableName: ${param:proccessedNotificationsTableName}
+
+constructs:
+  snowalerts-incoming-sms:
+    type: queue
+    worker: incomingMessage
+  snowalerts-outging-notifications:
+    type: queue
+    worker: outgoingNotification
