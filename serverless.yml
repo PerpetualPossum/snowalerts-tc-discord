@@ -9,7 +9,7 @@ stages:
   default:
     params:
       subscribedChannelsTableName: "subscribed-channels-${sls:stage}"
-      handledSmsMessagesTableName: "handled-sms-messages-${sls:stage}"
+      smsMessagesTableName: "sms-messages-${sls:stage}"
       proccessedNotificationsTableName: "proccessed-notifications-${sls:stage}"
     resolvers:
       doppler:
@@ -27,19 +27,26 @@ stages:
         config: prod
 
 plugins:
-  - serverless-python-requirements
   - serverless-lift
+
 custom:
   pythonRequirements:
     dockerizePip: true
     useUv: true
     installer: uv
-  wsgi:
-    app: app.app
+
+package:
+  include:
+    - '!./**'
+    - './src/**'
+  exclude:
+    - '**'
 
 provider:
   name: aws
   runtime: python3.13
+  architecture: arm64
+  region: ${env:AWS_DEFAULT_REGION}
   # Uncomment to easily set up a custom domain. Read the docs for more details:
   # https://www.serverless.com/framework/docs/providers/aws/guide/domains
   # domain: api.example.com
@@ -56,25 +63,34 @@ provider:
             - dynamodb:DeleteItem
           Resource:
             - Fn::GetAtt: [ProccessedNotificationsTable, Arn]
+            - Fn::GetAtt: [SubscribedChannelsTable, Arn]
+            - Fn::GetAtt: [SmsMessagesTable, Arn]
   environment:
     PROCCESSED_NOTIFICATIONS_TABLE: ${param:proccessedNotificationsTableName}
 
 functions:
   api:
-    handler: app.lambda_handler
+    handler: src/http-api/app.lambda_handler
+    timeout: 30
+    memorySize: 128
+    environment:
+      DYNAMO_TABLE_SMS_MESSAGES: ${param:smsMessagesTableName}
+      SQS_QUEUE_URL_INCOMING_SMS: ${construct:snowalerts-incoming-sms.queueUrl}
+      TWILIO_AUTH_TOKEN: ${doppler:TWILIO_AUTH_TOKEN}
+      INCOMING_SMS_URL: ${doppler:INCOMING_SMS_URL}
     events:
-      - http:
+      - httpApi:
           path: /api/interactions
           method: POST
-      - http:
+      - httpApi:
           path: /webhooks/incoming-sms
           method: POST
   incomingMessage:
-    handler: app.lambda_handler
+    handler: src/incoming-message/app.lambda_handler
     # Event source in constructs section
 
   outgoingNotification:
-    handler: app.lambda_handler
+    handler: src/outgoing-notification/app.lambda_handler
     # Event source in constructs section
 
 resources:
@@ -83,42 +99,46 @@ resources:
       Type: AWS::DynamoDB::Table
       Properties:
         AttributeDefinitions:
-          - AttributeName: channelId
+          - AttributeName: channel_id
             AttributeType: S
         KeySchema:
-          - AttributeName: channelId
+          - AttributeName: channel_id
             KeyType: HASH
         ProvisionedThroughput:
           ReadCapacityUnits: 5
           WriteCapacityUnits: 5
         TableName: ${param:subscribedChannelsTableName}
 
-    HandledSmsMessagesTable:
+    SmsMessagesTable:
       Type: AWS::DynamoDB::Table
       Properties:
         AttributeDefinitions:
-          - AttributeName: messageId
+          - AttributeName: message_sid
             AttributeType: S
+          - AttributeName: received_at
+            AttributeType: N
         KeySchema:
-          - AttributeName: messageId
+          - AttributeName: message_sid
             KeyType: HASH
+          - AttributeName: received_at
+            KeyType: RANGE
         ProvisionedThroughput:
           ReadCapacityUnits: 5
           WriteCapacityUnits: 5
-        TableName: ${param:handledSmsMessagesTableName}
+        TableName: ${param:smsMessagesTableName}
 
     ProccessedNotificationsTable:
       Type: AWS::DynamoDB::Table
       Properties:
         AttributeDefinitions:
-          - AttributeName: channelId
+          - AttributeName: channel_id
             AttributeType: S
-          - AttributeName: sentAt
+          - AttributeName: sent_at
             AttributeType: N
         KeySchema:
-          - AttributeName: channelId
+          - AttributeName: channel_id
             KeyType: HASH
-          - AttributeName: sentAt
+          - AttributeName: sent_at
             KeyType: RANGE
         ProvisionedThroughput:
           ReadCapacityUnits: 5
@@ -129,6 +149,6 @@ constructs:
   snowalerts-incoming-sms:
     type: queue
     worker: incomingMessage
-  snowalerts-outging-notifications:
+  snowalerts-outgoing-notifications:
     type: queue
     worker: outgoingNotification
