@@ -214,3 +214,6 @@ node_modules/
 
 # Ignore .serverless folder
 .serverless/
+
+# Bane of every mac developer's existence
+.DS_Store
